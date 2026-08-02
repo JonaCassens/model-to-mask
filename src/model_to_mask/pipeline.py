@@ -1,14 +1,56 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from .config import CompilerConfig
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
 def _write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def collect_repository_state() -> dict[str, object]:
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(REPOSITORY_ROOT), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        branch = subprocess.run(
+            ["git", "-C", str(REPOSITORY_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty_output = subprocess.run(
+            ["git", "-C", str(REPOSITORY_ROOT), "status", "--short"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return {
+            "available": False,
+            "root": str(REPOSITORY_ROOT),
+            "branch": None,
+            "commit": None,
+            "is_dirty": None,
+        }
+
+    return {
+        "available": True,
+        "root": str(REPOSITORY_ROOT),
+        "branch": branch,
+        "commit": commit,
+        "is_dirty": bool(dirty_output),
+    }
 
 
 def build_command_plan(config: CompilerConfig) -> list[dict[str, object]]:
@@ -120,6 +162,7 @@ def initialize_workspace(config: CompilerConfig) -> Path:
 
     directories = config.stage_paths()
     artifacts = config.artifact_paths()
+    repository_state = collect_repository_state()
 
     _write_text(
         artifacts["tosa_mlir"],
@@ -311,9 +354,15 @@ def initialize_workspace(config: CompilerConfig) -> Path:
         directories["reports"] / "command-plan.json",
         json.dumps(build_command_plan(config), indent=2) + "\n",
     )
+    _write_text(
+        directories["reports"] / "repository-state.json",
+        json.dumps(repository_state, indent=2) + "\n",
+    )
 
+    manifest = config.to_manifest()
+    manifest["repository_state"] = repository_state
     artifacts["manifest"].write_text(
-        json.dumps(config.to_manifest(), indent=2) + "\n",
+        json.dumps(manifest, indent=2) + "\n",
         encoding="utf-8",
     )
     return artifacts["manifest"]

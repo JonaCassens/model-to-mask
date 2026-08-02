@@ -52,6 +52,7 @@ Generated config assets include:
 - `backend/backend.env`
 - `reports/stage-status.json`
 - `reports/command-plan.json`
+- `reports/repository-state.json`
 
 The printed command plan captures the intended handoff sequence for:
 
@@ -60,6 +61,10 @@ The printed command plan captures the intended handoff sequence for:
 - CIRCT scheduling and structural lowering
 - Yosys backend export
 - OpenROAD physical design execution
+
+The generated manifest and repository state report also record which local checkout
+produced the workspace, including the repository root, current branch, commit SHA,
+and whether the checkout had uncommitted changes.
 
 To run the test suite:
 

@@ -9,7 +9,11 @@ from pathlib import Path
 
 from model_to_mask.cli import build_parser, main
 from model_to_mask.config import CompilerConfig
-from model_to_mask.pipeline import build_command_plan, initialize_workspace
+from model_to_mask.pipeline import (
+    build_command_plan,
+    collect_repository_state,
+    initialize_workspace,
+)
 
 
 class CompilerConfigTests(unittest.TestCase):
@@ -57,6 +61,15 @@ class CompilerConfigTests(unittest.TestCase):
 
 
 class PipelineInitializationTests(unittest.TestCase):
+    def test_repository_state_exposes_snapshot_fields(self) -> None:
+        repository_state = collect_repository_state()
+
+        self.assertIn("available", repository_state)
+        self.assertIn("root", repository_state)
+        self.assertIn("branch", repository_state)
+        self.assertIn("commit", repository_state)
+        self.assertIn("is_dirty", repository_state)
+
     def test_command_plan_tracks_expected_stages(self) -> None:
         config = CompilerConfig(
             model_path=Path("examples/model.pt"),
@@ -97,6 +110,7 @@ class PipelineInitializationTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["top_name"], "demo_top")
             self.assertEqual(manifest["output_format"], "blif")
+            self.assertIn("repository_state", manifest)
 
             for artifact in manifest["artifacts"].values():
                 self.assertTrue(Path(artifact).exists())
@@ -105,6 +119,10 @@ class PipelineInitializationTests(unittest.TestCase):
             self.assertTrue((output_dir / "backend" / "backend.env").exists())
             self.assertTrue((output_dir / "reports" / "stage-status.json").exists())
             self.assertTrue((output_dir / "reports" / "command-plan.json").exists())
+            repository_state_path = output_dir / "reports" / "repository-state.json"
+            self.assertTrue(repository_state_path.exists())
+            repository_state = json.loads(repository_state_path.read_text(encoding="utf-8"))
+            self.assertEqual(repository_state, manifest["repository_state"])
 
     def test_cli_parser_exposes_expected_defaults(self) -> None:
         parser = build_parser()
