@@ -46,6 +46,7 @@ class CompilerConfigTests(unittest.TestCase):
                         "top_name": "file_top",
                         "output_format": "blif",
                         "weight_split_ratio": 0.9,
+                        "tosa_input_path": "examples/model.tosa.mlir",
                         "toolchain": {"yosys": "custom-yosys"},
                     }
                 ),
@@ -57,6 +58,7 @@ class CompilerConfigTests(unittest.TestCase):
             self.assertEqual(config.top_name, "file_top")
             self.assertEqual(config.output_format, "blif")
             self.assertEqual(config.weight_split_ratio, 0.9)
+            self.assertEqual(config.tosa_input_path, Path("examples/model.tosa.mlir"))
             self.assertEqual(config.toolchain.yosys, "custom-yosys")
 
 
@@ -94,6 +96,20 @@ class PipelineInitializationTests(unittest.TestCase):
         self.assertEqual(plan[0]["tool"], "torch-mlir-opt")
         self.assertIn("--emit-tosa", plan[0]["command"])
 
+    def test_command_plan_uses_seeded_tosa_input_when_provided(self) -> None:
+        config = CompilerConfig(
+            model_path=Path("examples/model.pt"),
+            output_dir=Path("build/demo"),
+            top_name="demo_top",
+            tosa_input_path=Path("examples/model.tosa.mlir"),
+        )
+
+        plan = build_command_plan(config)
+
+        self.assertEqual(plan[0]["tool"], "copy")
+        self.assertEqual(plan[0]["inputs"], ["examples/model.tosa.mlir"])
+        self.assertEqual(plan[0]["command"][0], "cp")
+
     def test_workspace_initialization_creates_manifest_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "build"
@@ -124,6 +140,35 @@ class PipelineInitializationTests(unittest.TestCase):
             repository_state = json.loads(repository_state_path.read_text(encoding="utf-8"))
             self.assertEqual(repository_state, manifest["repository_state"])
 
+    def test_workspace_initialization_uses_seeded_tosa_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "build"
+            tosa_input = Path(tmpdir) / "seed.tosa.mlir"
+            tosa_input.write_text("module { func.func @main() }\n", encoding="utf-8")
+            config = CompilerConfig(
+                model_path=Path("examples/model.pt"),
+                output_dir=output_dir,
+                top_name="demo_top",
+                tosa_input_path=tosa_input,
+            )
+
+            manifest_path = initialize_workspace(config)
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            tosa_output = Path(manifest["artifacts"]["tosa_mlir"])
+            self.assertEqual(
+                tosa_output.read_text(encoding="utf-8"),
+                "module { func.func @main() }\n",
+            )
+            stage_status = json.loads(
+                (output_dir / "reports" / "stage-status.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(stage_status["frontend_ingestion"]["status"], "imported")
+            self.assertEqual(
+                stage_status["frontend_ingestion"]["source"],
+                str(tosa_input),
+            )
+
     def test_cli_parser_exposes_expected_defaults(self) -> None:
         parser = build_parser()
         args = parser.parse_args(
@@ -131,6 +176,7 @@ class PipelineInitializationTests(unittest.TestCase):
         )
         self.assertIsNone(args.output_format)
         self.assertIsNone(args.weight_split_ratio)
+        self.assertIsNone(args.tosa_input)
 
     def test_cli_can_initialize_from_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

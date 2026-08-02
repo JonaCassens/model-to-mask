@@ -53,22 +53,55 @@ def collect_repository_state() -> dict[str, object]:
     }
 
 
+def _frontend_stage_plan(config: CompilerConfig, tosa_output: Path) -> dict[str, object]:
+    if config.tosa_input_path is not None:
+        return {
+            "stage": "frontend_ingestion",
+            "tool": "copy",
+            "inputs": [str(config.tosa_input_path)],
+            "outputs": [str(tosa_output)],
+            "command": [
+                "cp",
+                str(config.tosa_input_path),
+                str(tosa_output),
+            ],
+        }
+    return {
+        "stage": "frontend_ingestion",
+        "tool": config.toolchain.torch_mlir_opt,
+        "inputs": [str(config.model_path)],
+        "outputs": [str(tosa_output)],
+        "command": [
+            config.toolchain.torch_mlir_opt,
+            str(config.model_path),
+            "--emit-tosa",
+            "-o",
+            str(tosa_output),
+        ],
+    }
+
+
+def _initialize_tosa_artifact(config: CompilerConfig, output_path: Path) -> None:
+    if config.tosa_input_path is not None:
+        _write_text(output_path, config.tosa_input_path.read_text(encoding="utf-8"))
+        return
+    _write_text(
+        output_path,
+        "\n".join(
+            [
+                "// Placeholder TOSA MLIR artifact",
+                f"// source_model={config.model_path}",
+                "// TODO: import quantized PyTorch with torch-mlir into TOSA.",
+                "",
+            ]
+        ),
+    )
+
+
 def build_command_plan(config: CompilerConfig) -> list[dict[str, object]]:
     artifacts = config.artifact_paths()
     return [
-        {
-            "stage": "frontend_ingestion",
-            "tool": config.toolchain.torch_mlir_opt,
-            "inputs": [str(config.model_path)],
-            "outputs": [str(artifacts["tosa_mlir"])],
-            "command": [
-                config.toolchain.torch_mlir_opt,
-                str(config.model_path),
-                "--emit-tosa",
-                "-o",
-                str(artifacts["tosa_mlir"]),
-            ],
-        },
+        _frontend_stage_plan(config, artifacts["tosa_mlir"]),
         {
             "stage": "mlir_lowering",
             "tool": config.toolchain.torch_mlir_opt,
@@ -164,17 +197,7 @@ def initialize_workspace(config: CompilerConfig) -> Path:
     artifacts = config.artifact_paths()
     repository_state = collect_repository_state()
 
-    _write_text(
-        artifacts["tosa_mlir"],
-        "\n".join(
-            [
-                "// Placeholder TOSA MLIR artifact",
-                f"// source_model={config.model_path}",
-                "// TODO: import quantized PyTorch with torch-mlir into TOSA.",
-                "",
-            ]
-        ),
-    )
+    _initialize_tosa_artifact(config, artifacts["tosa_mlir"])
     _write_text(
         artifacts["linalg_mlir"],
         "\n".join(
@@ -315,7 +338,12 @@ def initialize_workspace(config: CompilerConfig) -> Path:
         json.dumps(
             {
                 "frontend_ingestion": {
-                    "status": "planned",
+                    "status": "imported" if config.tosa_input_path is not None else "planned",
+                    "source": (
+                        str(config.tosa_input_path)
+                        if config.tosa_input_path is not None
+                        else str(config.model_path)
+                    ),
                     "output": str(artifacts["tosa_mlir"]),
                 },
                 "mlir_lowering": {
