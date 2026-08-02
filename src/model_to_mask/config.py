@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -66,3 +67,30 @@ class CompilerConfig:
             "directories": {key: str(value) for key, value in self.stage_paths().items()},
             "artifacts": {key: str(value) for key, value in self.artifact_paths().items()},
         }
+
+    @classmethod
+    def from_file(
+        cls,
+        path: Path | str,
+        *,
+        model_path: Path | str | None = None,
+        output_dir: Path | str | None = None,
+        top_name: str | None = None,
+        output_format: str | None = None,
+        weight_split_ratio: float | None = None,
+    ) -> "CompilerConfig":
+        config_path = Path(path)
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        toolchain_data = data.get("toolchain", {})
+        return cls(
+            model_path=model_path or data["model_path"],
+            output_dir=output_dir or data["output_dir"],
+            top_name=top_name or data["top_name"],
+            output_format=output_format or data.get("output_format", "rtlil"),
+            weight_split_ratio=(
+                weight_split_ratio
+                if weight_split_ratio is not None
+                else data.get("weight_split_ratio", 0.95)
+            ),
+            toolchain=ToolchainConfig(**toolchain_data),
+        )

@@ -15,6 +15,7 @@ def initialize_workspace(config: CompilerConfig) -> Path:
     for directory in config.stage_paths().values():
         directory.mkdir(parents=True, exist_ok=True)
 
+    directories = config.stage_paths()
     artifacts = config.artifact_paths()
 
     _write_text(
@@ -130,7 +131,7 @@ def initialize_workspace(config: CompilerConfig) -> Path:
         ),
     )
     _write_text(
-        config.stage_paths()["config"] / "pass-pipelines.txt",
+        directories["config"] / "pass-pipelines.txt",
         "\n".join(
             [
                 "frontend_ingestion: torch-mlir -> tosa",
@@ -142,6 +143,66 @@ def initialize_workspace(config: CompilerConfig) -> Path:
                 "",
             ]
         ),
+    )
+    _write_text(
+        directories["config"] / "compiler-config.json",
+        json.dumps(config.to_manifest(), indent=2) + "\n",
+    )
+    _write_text(
+        directories["config"] / "toolchain.json",
+        json.dumps(config.to_manifest()["toolchain"], indent=2) + "\n",
+    )
+    _write_text(
+        directories["backend"] / "backend.env",
+        "\n".join(
+            [
+                f"TOP={config.top_name}",
+                "LIBERTY=path/to/standard_cells.lib",
+                "TECH_LEF=path/to/tech.lef",
+                "SC_LEF=path/to/standard_cells.lef",
+                "",
+            ]
+        ),
+    )
+    _write_text(
+        directories["reports"] / "stage-status.json",
+        json.dumps(
+            {
+                "frontend_ingestion": {
+                    "status": "planned",
+                    "output": str(artifacts["tosa_mlir"]),
+                },
+                "mlir_lowering": {
+                    "status": "planned",
+                    "output": str(artifacts["linalg_mlir"]),
+                },
+                "bufferization": {
+                    "status": "planned",
+                    "output": str(artifacts["bufferized_mlir"]),
+                },
+                "circt_scheduling": {
+                    "status": "planned",
+                    "outputs": [
+                        str(artifacts["calyx_mlir"]),
+                        str(artifacts["handshake_mlir"]),
+                    ],
+                },
+                "structural_lowering": {
+                    "status": "planned",
+                    "output": str(artifacts["structural_mlir"]),
+                },
+                "backend_export": {
+                    "status": "planned",
+                    "output": str(artifacts["netlist"]),
+                },
+                "physical_design": {
+                    "status": "planned",
+                    "output": str(artifacts["openroad_script"]),
+                },
+            },
+            indent=2,
+        )
+        + "\n",
     )
 
     artifacts["manifest"].write_text(

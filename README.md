@@ -29,6 +29,12 @@ python -m model_to_mask.cli \
   --top-name demo_accelerator
 ```
 
+You can also initialize from a JSON config file:
+
+```bash
+python -m model_to_mask.cli --config compiler-config.json
+```
+
 This creates:
 
 - `build/demo/manifest.json`
@@ -36,6 +42,14 @@ This creates:
 - `build/demo/circt/`
 - `build/demo/backend/`
 - `build/demo/config/`
+- `build/demo/reports/`
+
+Generated config assets include:
+
+- `config/compiler-config.json`
+- `config/toolchain.json`
+- `backend/backend.env`
+- `reports/stage-status.json`
 
 To run the test suite:
 
