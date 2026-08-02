@@ -46,6 +46,17 @@ python -m model_to_mask.cli \
   --tosa-input /absolute/path/to/model.tosa.mlir
 ```
 
+You can also continue from later MLIR checkpoints:
+
+```bash
+python -m model_to_mask.cli \
+  --model examples/quantized_model.pt \
+  --output-dir build/demo \
+  --top-name demo_accelerator \
+  --linalg-input /absolute/path/to/model.linalg.mlir \
+  --bufferized-input /absolute/path/to/model.bufferized.mlir
+```
+
 This creates:
 
 - `build/demo/manifest.json`
@@ -75,6 +86,10 @@ The printed command plan captures the intended handoff sequence for:
 When `--tosa-input` is provided, the frontend stage switches from a planned
 torch-mlir ingestion step to importing that existing TOSA MLIR artifact so the
 rest of the workspace can continue from the checkpointed frontend output.
+
+Likewise, `--linalg-input` and `--bufferized-input` let the workspace resume from
+later MLIR checkpoints by importing those artifacts into the generated workspace
+and marking the corresponding stages as imported in the stage status report.
 
 The generated manifest and repository state report also record which local checkout
 produced the workspace, including the repository root, current branch, commit SHA,

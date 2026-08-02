@@ -37,6 +37,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional existing TOSA MLIR file to seed the frontend ingestion output",
     )
     parser.add_argument(
+        "--linalg-input",
+        help="Optional existing linalg MLIR file to seed the mlir lowering output",
+    )
+    parser.add_argument(
+        "--bufferized-input",
+        help="Optional existing bufferized MLIR file to seed the bufferization output",
+    )
+    parser.add_argument(
         "--print-plan",
         action="store_true",
         help="Print the planned stage commands after workspace initialization",
@@ -55,6 +63,10 @@ def main() -> int:
             output_format=args.output_format,
             weight_split_ratio=args.weight_split_ratio,
             tosa_input_path=Path(args.tosa_input) if args.tosa_input else None,
+            linalg_input_path=Path(args.linalg_input) if args.linalg_input else None,
+            bufferized_input_path=(
+                Path(args.bufferized_input) if args.bufferized_input else None
+            ),
         )
     else:
         missing = [
@@ -75,6 +87,10 @@ def main() -> int:
             output_format=args.output_format or "rtlil",
             weight_split_ratio=args.weight_split_ratio or 0.95,
             tosa_input_path=Path(args.tosa_input) if args.tosa_input else None,
+            linalg_input_path=Path(args.linalg_input) if args.linalg_input else None,
+            bufferized_input_path=(
+                Path(args.bufferized_input) if args.bufferized_input else None
+            ),
         )
     manifest = initialize_workspace(config)
     if args.print_plan:

@@ -47,6 +47,8 @@ class CompilerConfigTests(unittest.TestCase):
                         "output_format": "blif",
                         "weight_split_ratio": 0.9,
                         "tosa_input_path": "examples/model.tosa.mlir",
+                        "linalg_input_path": "examples/model.linalg.mlir",
+                        "bufferized_input_path": "examples/model.bufferized.mlir",
                         "toolchain": {"yosys": "custom-yosys"},
                     }
                 ),
@@ -59,6 +61,10 @@ class CompilerConfigTests(unittest.TestCase):
             self.assertEqual(config.output_format, "blif")
             self.assertEqual(config.weight_split_ratio, 0.9)
             self.assertEqual(config.tosa_input_path, Path("examples/model.tosa.mlir"))
+            self.assertEqual(config.linalg_input_path, Path("examples/model.linalg.mlir"))
+            self.assertEqual(
+                config.bufferized_input_path, Path("examples/model.bufferized.mlir")
+            )
             self.assertEqual(config.toolchain.yosys, "custom-yosys")
 
 
@@ -109,6 +115,22 @@ class PipelineInitializationTests(unittest.TestCase):
         self.assertEqual(plan[0]["tool"], "copy")
         self.assertEqual(plan[0]["inputs"], ["examples/model.tosa.mlir"])
         self.assertEqual(plan[0]["command"][0], "cp")
+
+    def test_command_plan_uses_seeded_mlir_inputs_when_provided(self) -> None:
+        config = CompilerConfig(
+            model_path=Path("examples/model.pt"),
+            output_dir=Path("build/demo"),
+            top_name="demo_top",
+            linalg_input_path=Path("examples/model.linalg.mlir"),
+            bufferized_input_path=Path("examples/model.bufferized.mlir"),
+        )
+
+        plan = build_command_plan(config)
+
+        self.assertEqual(plan[1]["tool"], "copy")
+        self.assertEqual(plan[1]["inputs"], ["examples/model.linalg.mlir"])
+        self.assertEqual(plan[2]["tool"], "copy")
+        self.assertEqual(plan[2]["inputs"], ["examples/model.bufferized.mlir"])
 
     def test_workspace_initialization_creates_manifest_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -169,6 +191,48 @@ class PipelineInitializationTests(unittest.TestCase):
                 str(tosa_input),
             )
 
+    def test_workspace_initialization_uses_seeded_mlir_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "build"
+            linalg_input = Path(tmpdir) / "seed.linalg.mlir"
+            linalg_input.write_text("module { func.func @linalg() }\n", encoding="utf-8")
+            bufferized_input = Path(tmpdir) / "seed.bufferized.mlir"
+            bufferized_input.write_text(
+                "module { func.func @bufferized() }\n",
+                encoding="utf-8",
+            )
+            config = CompilerConfig(
+                model_path=Path("examples/model.pt"),
+                output_dir=output_dir,
+                top_name="demo_top",
+                linalg_input_path=linalg_input,
+                bufferized_input_path=bufferized_input,
+            )
+
+            manifest_path = initialize_workspace(config)
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            linalg_output = Path(manifest["artifacts"]["linalg_mlir"])
+            bufferized_output = Path(manifest["artifacts"]["bufferized_mlir"])
+            self.assertEqual(
+                linalg_output.read_text(encoding="utf-8"),
+                "module { func.func @linalg() }\n",
+            )
+            self.assertEqual(
+                bufferized_output.read_text(encoding="utf-8"),
+                "module { func.func @bufferized() }\n",
+            )
+            stage_status = json.loads(
+                (output_dir / "reports" / "stage-status.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(stage_status["mlir_lowering"]["status"], "imported")
+            self.assertEqual(stage_status["mlir_lowering"]["source"], str(linalg_input))
+            self.assertEqual(stage_status["bufferization"]["status"], "imported")
+            self.assertEqual(
+                stage_status["bufferization"]["source"],
+                str(bufferized_input),
+            )
+
     def test_cli_parser_exposes_expected_defaults(self) -> None:
         parser = build_parser()
         args = parser.parse_args(
@@ -177,6 +241,8 @@ class PipelineInitializationTests(unittest.TestCase):
         self.assertIsNone(args.output_format)
         self.assertIsNone(args.weight_split_ratio)
         self.assertIsNone(args.tosa_input)
+        self.assertIsNone(args.linalg_input)
+        self.assertIsNone(args.bufferized_input)
 
     def test_cli_can_initialize_from_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

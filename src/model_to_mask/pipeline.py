@@ -15,6 +15,10 @@ def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def _copy_artifact(source: Path, output_path: Path) -> None:
+    _write_text(output_path, source.read_text(encoding="utf-8"))
+
+
 def collect_repository_state() -> dict[str, object]:
     try:
         commit = subprocess.run(
@@ -53,81 +57,95 @@ def collect_repository_state() -> dict[str, object]:
     }
 
 
-def _frontend_stage_plan(config: CompilerConfig, tosa_output: Path) -> dict[str, object]:
-    if config.tosa_input_path is not None:
+def _seeded_stage_plan(
+    *,
+    stage: str,
+    source: Path | None,
+    output: Path,
+    planned_tool: str,
+    planned_inputs: list[str],
+    planned_command: list[str],
+) -> dict[str, object]:
+    if source is not None:
         return {
-            "stage": "frontend_ingestion",
+            "stage": stage,
             "tool": "copy",
-            "inputs": [str(config.tosa_input_path)],
-            "outputs": [str(tosa_output)],
+            "inputs": [str(source)],
+            "outputs": [str(output)],
             "command": [
                 "cp",
-                str(config.tosa_input_path),
-                str(tosa_output),
+                str(source),
+                str(output),
             ],
         }
     return {
-        "stage": "frontend_ingestion",
-        "tool": config.toolchain.torch_mlir_opt,
-        "inputs": [str(config.model_path)],
-        "outputs": [str(tosa_output)],
-        "command": [
-            config.toolchain.torch_mlir_opt,
-            str(config.model_path),
-            "--emit-tosa",
-            "-o",
-            str(tosa_output),
-        ],
+        "stage": stage,
+        "tool": planned_tool,
+        "inputs": planned_inputs,
+        "outputs": [str(output)],
+        "command": planned_command,
     }
 
 
-def _initialize_tosa_artifact(config: CompilerConfig, output_path: Path) -> None:
-    if config.tosa_input_path is not None:
-        _write_text(output_path, config.tosa_input_path.read_text(encoding="utf-8"))
+def _initialize_seeded_artifact(
+    source: Path | None,
+    output_path: Path,
+    placeholder_lines: list[str],
+) -> None:
+    if source is not None:
+        _copy_artifact(source, output_path)
         return
     _write_text(
         output_path,
-        "\n".join(
-            [
-                "// Placeholder TOSA MLIR artifact",
-                f"// source_model={config.model_path}",
-                "// TODO: import quantized PyTorch with torch-mlir into TOSA.",
-                "",
-            ]
-        ),
+        "\n".join(placeholder_lines + [""]),
     )
 
 
 def build_command_plan(config: CompilerConfig) -> list[dict[str, object]]:
     artifacts = config.artifact_paths()
     return [
-        _frontend_stage_plan(config, artifacts["tosa_mlir"]),
-        {
-            "stage": "mlir_lowering",
-            "tool": config.toolchain.torch_mlir_opt,
-            "inputs": [str(artifacts["tosa_mlir"])],
-            "outputs": [str(artifacts["linalg_mlir"])],
-            "command": [
+        _seeded_stage_plan(
+            stage="frontend_ingestion",
+            source=config.tosa_input_path,
+            output=artifacts["tosa_mlir"],
+            planned_tool=config.toolchain.torch_mlir_opt,
+            planned_inputs=[str(config.model_path)],
+            planned_command=[
+                config.toolchain.torch_mlir_opt,
+                str(config.model_path),
+                "--emit-tosa",
+                "-o",
+                str(artifacts["tosa_mlir"]),
+            ],
+        ),
+        _seeded_stage_plan(
+            stage="mlir_lowering",
+            source=config.linalg_input_path,
+            output=artifacts["linalg_mlir"],
+            planned_tool=config.toolchain.torch_mlir_opt,
+            planned_inputs=[str(artifacts["tosa_mlir"])],
+            planned_command=[
                 config.toolchain.torch_mlir_opt,
                 str(artifacts["tosa_mlir"]),
                 "-tosa-to-linalg",
                 "-o",
                 str(artifacts["linalg_mlir"]),
             ],
-        },
-        {
-            "stage": "bufferization",
-            "tool": config.toolchain.torch_mlir_opt,
-            "inputs": [str(artifacts["linalg_mlir"])],
-            "outputs": [str(artifacts["bufferized_mlir"])],
-            "command": [
+        ),
+        _seeded_stage_plan(
+            stage="bufferization",
+            source=config.bufferized_input_path,
+            output=artifacts["bufferized_mlir"],
+            planned_tool=config.toolchain.torch_mlir_opt,
+            planned_inputs=[str(artifacts["linalg_mlir"])],
+            planned_command=[
                 config.toolchain.torch_mlir_opt,
                 str(artifacts["linalg_mlir"]),
                 "-linalg-bufferize",
                 "-o",
                 str(artifacts["bufferized_mlir"]),
             ],
-        },
+        ),
         {
             "stage": "circt_scheduling",
             "tool": config.toolchain.circt_opt,
@@ -197,26 +215,30 @@ def initialize_workspace(config: CompilerConfig) -> Path:
     artifacts = config.artifact_paths()
     repository_state = collect_repository_state()
 
-    _initialize_tosa_artifact(config, artifacts["tosa_mlir"])
-    _write_text(
-        artifacts["linalg_mlir"],
-        "\n".join(
-            [
-                "// Placeholder linalg MLIR artifact",
-                "// pass_pipeline: -tosa-to-linalg",
-                "",
-            ]
-        ),
+    _initialize_seeded_artifact(
+        config.tosa_input_path,
+        artifacts["tosa_mlir"],
+        [
+            "// Placeholder TOSA MLIR artifact",
+            f"// source_model={config.model_path}",
+            "// TODO: import quantized PyTorch with torch-mlir into TOSA.",
+        ],
     )
-    _write_text(
+    _initialize_seeded_artifact(
+        config.linalg_input_path,
+        artifacts["linalg_mlir"],
+        [
+            "// Placeholder linalg MLIR artifact",
+            "// pass_pipeline: -tosa-to-linalg",
+        ],
+    )
+    _initialize_seeded_artifact(
+        config.bufferized_input_path,
         artifacts["bufferized_mlir"],
-        "\n".join(
-            [
-                "// Placeholder bufferized MLIR artifact",
-                "// pass_pipeline: -linalg-bufferize",
-                "",
-            ]
-        ),
+        [
+            "// Placeholder bufferized MLIR artifact",
+            "// pass_pipeline: -linalg-bufferize",
+        ],
     )
     _write_text(
         artifacts["calyx_mlir"],
@@ -347,11 +369,23 @@ def initialize_workspace(config: CompilerConfig) -> Path:
                     "output": str(artifacts["tosa_mlir"]),
                 },
                 "mlir_lowering": {
-                    "status": "planned",
+                    "status": "imported" if config.linalg_input_path is not None else "planned",
+                    "source": (
+                        str(config.linalg_input_path)
+                        if config.linalg_input_path is not None
+                        else str(artifacts["tosa_mlir"])
+                    ),
                     "output": str(artifacts["linalg_mlir"]),
                 },
                 "bufferization": {
-                    "status": "planned",
+                    "status": (
+                        "imported" if config.bufferized_input_path is not None else "planned"
+                    ),
+                    "source": (
+                        str(config.bufferized_input_path)
+                        if config.bufferized_input_path is not None
+                        else str(artifacts["linalg_mlir"])
+                    ),
                     "output": str(artifacts["bufferized_mlir"]),
                 },
                 "circt_scheduling": {

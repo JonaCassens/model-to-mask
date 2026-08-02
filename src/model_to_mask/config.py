@@ -22,6 +22,8 @@ class CompilerConfig:
     output_format: str = "rtlil"
     weight_split_ratio: float = 0.95
     tosa_input_path: Path | None = None
+    linalg_input_path: Path | None = None
+    bufferized_input_path: Path | None = None
     toolchain: ToolchainConfig = field(default_factory=ToolchainConfig)
 
     def __post_init__(self) -> None:
@@ -29,6 +31,14 @@ class CompilerConfig:
         self.output_dir = Path(self.output_dir)
         self.tosa_input_path = (
             Path(self.tosa_input_path) if self.tosa_input_path is not None else None
+        )
+        self.linalg_input_path = (
+            Path(self.linalg_input_path) if self.linalg_input_path is not None else None
+        )
+        self.bufferized_input_path = (
+            Path(self.bufferized_input_path)
+            if self.bufferized_input_path is not None
+            else None
         )
         self.output_format = self.output_format.lower()
         if self.output_format not in {"rtlil", "blif"}:
@@ -70,6 +80,14 @@ class CompilerConfig:
             "tosa_input_path": (
                 str(self.tosa_input_path) if self.tosa_input_path is not None else None
             ),
+            "linalg_input_path": (
+                str(self.linalg_input_path) if self.linalg_input_path is not None else None
+            ),
+            "bufferized_input_path": (
+                str(self.bufferized_input_path)
+                if self.bufferized_input_path is not None
+                else None
+            ),
             "toolchain": asdict(self.toolchain),
             "directories": {key: str(value) for key, value in self.stage_paths().items()},
             "artifacts": {key: str(value) for key, value in self.artifact_paths().items()},
@@ -86,6 +104,8 @@ class CompilerConfig:
         output_format: str | None = None,
         weight_split_ratio: float | None = None,
         tosa_input_path: Path | str | None = None,
+        linalg_input_path: Path | str | None = None,
+        bufferized_input_path: Path | str | None = None,
     ) -> "CompilerConfig":
         config_path = Path(path)
         data = json.loads(config_path.read_text(encoding="utf-8"))
@@ -101,5 +121,9 @@ class CompilerConfig:
                 else data.get("weight_split_ratio", 0.95)
             ),
             tosa_input_path=tosa_input_path or data.get("tosa_input_path"),
+            linalg_input_path=linalg_input_path or data.get("linalg_input_path"),
+            bufferized_input_path=(
+                bufferized_input_path or data.get("bufferized_input_path")
+            ),
             toolchain=ToolchainConfig(**toolchain_data),
         )
