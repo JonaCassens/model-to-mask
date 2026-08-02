@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 from model_to_mask.cli import build_parser, main
 from model_to_mask.config import CompilerConfig
-from model_to_mask.pipeline import initialize_workspace
+from model_to_mask.pipeline import build_command_plan, initialize_workspace
 
 
 class CompilerConfigTests(unittest.TestCase):
@@ -55,6 +57,30 @@ class CompilerConfigTests(unittest.TestCase):
 
 
 class PipelineInitializationTests(unittest.TestCase):
+    def test_command_plan_tracks_expected_stages(self) -> None:
+        config = CompilerConfig(
+            model_path=Path("examples/model.pt"),
+            output_dir=Path("build/demo"),
+            top_name="demo_top",
+        )
+
+        plan = build_command_plan(config)
+
+        self.assertEqual(
+            [step["stage"] for step in plan],
+            [
+                "frontend_ingestion",
+                "mlir_lowering",
+                "bufferization",
+                "circt_scheduling",
+                "structural_lowering",
+                "backend_export",
+                "physical_design",
+            ],
+        )
+        self.assertEqual(plan[0]["tool"], "torch-mlir-opt")
+        self.assertIn("--emit-tosa", plan[0]["command"])
+
     def test_workspace_initialization_creates_manifest_and_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "build"
@@ -78,6 +104,7 @@ class PipelineInitializationTests(unittest.TestCase):
             self.assertTrue((output_dir / "config" / "toolchain.json").exists())
             self.assertTrue((output_dir / "backend" / "backend.env").exists())
             self.assertTrue((output_dir / "reports" / "stage-status.json").exists())
+            self.assertTrue((output_dir / "reports" / "command-plan.json").exists())
 
     def test_cli_parser_exposes_expected_defaults(self) -> None:
         parser = build_parser()
@@ -117,6 +144,34 @@ class PipelineInitializationTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             self.assertTrue((output_dir / "manifest.json").exists())
+
+    def test_cli_print_plan_outputs_stage_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "workspace"
+            import sys
+
+            old_argv = sys.argv
+            sys.argv = [
+                "model_to_mask.cli",
+                "--model",
+                "examples/model.pt",
+                "--output-dir",
+                str(output_dir),
+                "--top-name",
+                "stdout_top",
+                "--print-plan",
+            ]
+            buffer = StringIO()
+            try:
+                with redirect_stdout(buffer):
+                    exit_code = main()
+            finally:
+                sys.argv = old_argv
+
+            self.assertEqual(exit_code, 0)
+            output = buffer.getvalue()
+            self.assertIn('"stage": "frontend_ingestion"', output)
+            self.assertIn("Initialized model-to-mask workspace:", output)
 
 
 if __name__ == "__main__":

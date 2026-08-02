@@ -11,6 +11,109 @@ def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def build_command_plan(config: CompilerConfig) -> list[dict[str, object]]:
+    artifacts = config.artifact_paths()
+    return [
+        {
+            "stage": "frontend_ingestion",
+            "tool": config.toolchain.torch_mlir_opt,
+            "inputs": [str(config.model_path)],
+            "outputs": [str(artifacts["tosa_mlir"])],
+            "command": [
+                config.toolchain.torch_mlir_opt,
+                str(config.model_path),
+                "--emit-tosa",
+                "-o",
+                str(artifacts["tosa_mlir"]),
+            ],
+        },
+        {
+            "stage": "mlir_lowering",
+            "tool": config.toolchain.torch_mlir_opt,
+            "inputs": [str(artifacts["tosa_mlir"])],
+            "outputs": [str(artifacts["linalg_mlir"])],
+            "command": [
+                config.toolchain.torch_mlir_opt,
+                str(artifacts["tosa_mlir"]),
+                "-tosa-to-linalg",
+                "-o",
+                str(artifacts["linalg_mlir"]),
+            ],
+        },
+        {
+            "stage": "bufferization",
+            "tool": config.toolchain.torch_mlir_opt,
+            "inputs": [str(artifacts["linalg_mlir"])],
+            "outputs": [str(artifacts["bufferized_mlir"])],
+            "command": [
+                config.toolchain.torch_mlir_opt,
+                str(artifacts["linalg_mlir"]),
+                "-linalg-bufferize",
+                "-o",
+                str(artifacts["bufferized_mlir"]),
+            ],
+        },
+        {
+            "stage": "circt_scheduling",
+            "tool": config.toolchain.circt_opt,
+            "inputs": [str(artifacts["bufferized_mlir"])],
+            "outputs": [
+                str(artifacts["calyx_mlir"]),
+                str(artifacts["handshake_mlir"]),
+            ],
+            "command": [
+                config.toolchain.circt_opt,
+                str(artifacts["bufferized_mlir"]),
+                "--lower-to-calyx-and-handshake",
+            ],
+        },
+        {
+            "stage": "structural_lowering",
+            "tool": config.toolchain.firtool,
+            "inputs": [
+                str(artifacts["calyx_mlir"]),
+                str(artifacts["handshake_mlir"]),
+            ],
+            "outputs": [str(artifacts["structural_mlir"])],
+            "command": [
+                config.toolchain.firtool,
+                str(artifacts["calyx_mlir"]),
+                "--merge-handshake",
+                str(artifacts["handshake_mlir"]),
+                "-o",
+                str(artifacts["structural_mlir"]),
+            ],
+        },
+        {
+            "stage": "backend_export",
+            "tool": config.toolchain.yosys,
+            "inputs": [
+                str(artifacts["structural_mlir"]),
+                str(artifacts["yosys_script"]),
+            ],
+            "outputs": [str(artifacts["netlist"])],
+            "command": [
+                config.toolchain.yosys,
+                "-c",
+                str(artifacts["yosys_script"]),
+            ],
+        },
+        {
+            "stage": "physical_design",
+            "tool": config.toolchain.openroad,
+            "inputs": [
+                str(artifacts["netlist"]),
+                str(artifacts["openroad_script"]),
+            ],
+            "outputs": [str(directories := config.stage_paths()["reports"] / "openroad-final.def")],
+            "command": [
+                config.toolchain.openroad,
+                str(artifacts["openroad_script"]),
+            ],
+        },
+    ]
+
+
 def initialize_workspace(config: CompilerConfig) -> Path:
     for directory in config.stage_paths().values():
         directory.mkdir(parents=True, exist_ok=True)
@@ -203,6 +306,10 @@ def initialize_workspace(config: CompilerConfig) -> Path:
             indent=2,
         )
         + "\n",
+    )
+    _write_text(
+        directories["reports"] / "command-plan.json",
+        json.dumps(build_command_plan(config), indent=2) + "\n",
     )
 
     artifacts["manifest"].write_text(

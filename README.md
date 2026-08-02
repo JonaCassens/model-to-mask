@@ -26,13 +26,14 @@ From `/home/runner/work/model-to-mask/model-to-mask`:
 python -m model_to_mask.cli \
   --model examples/quantized_model.pt \
   --output-dir build/demo \
-  --top-name demo_accelerator
+  --top-name demo_accelerator \
+  --print-plan
 ```
 
 You can also initialize from a JSON config file:
 
 ```bash
-python -m model_to_mask.cli --config compiler-config.json
+python -m model_to_mask.cli --config examples/compiler-config.json
 ```
 
 This creates:
@@ -50,6 +51,15 @@ Generated config assets include:
 - `config/toolchain.json`
 - `backend/backend.env`
 - `reports/stage-status.json`
+- `reports/command-plan.json`
+
+The printed command plan captures the intended handoff sequence for:
+
+- torch-mlir ingestion into TOSA
+- TOSA to linalg and linalg bufferization
+- CIRCT scheduling and structural lowering
+- Yosys backend export
+- OpenROAD physical design execution
 
 To run the test suite:
 

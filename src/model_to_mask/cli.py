@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from .config import CompilerConfig
-from .pipeline import initialize_workspace
+from .pipeline import build_command_plan, initialize_workspace
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--weight-split-ratio",
         type=float,
         help="Fraction of weights mapped to mask ROM in the hybrid architecture",
+    )
+    parser.add_argument(
+        "--print-plan",
+        action="store_true",
+        help="Print the planned stage commands after workspace initialization",
     )
     return parser
 
@@ -65,6 +71,8 @@ def main() -> int:
             weight_split_ratio=args.weight_split_ratio or 0.95,
         )
     manifest = initialize_workspace(config)
+    if args.print_plan:
+        print(json.dumps(build_command_plan(config), indent=2))
     print(f"Initialized model-to-mask workspace: {manifest}")
     return 0
 
