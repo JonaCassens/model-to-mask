@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
@@ -20,7 +20,7 @@ class CompilerConfig:
     top_name: str
     output_format: str = "rtlil"
     weight_split_ratio: float = 0.95
-    toolchain: ToolchainConfig = ToolchainConfig()
+    toolchain: ToolchainConfig = field(default_factory=ToolchainConfig)
 
     def __post_init__(self) -> None:
         self.model_path = Path(self.model_path)
