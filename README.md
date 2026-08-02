@@ -1,2 +1,44 @@
 # model-to-mask
-m2m, streamlining asic deployment of NNs and SLMs to enable wider access to on-edge intelligence. curiosity project.
+
+m2m is an early scaffold for a model-to-mask compiler pipeline targeting fixed-weight
+neural ASIC flows.
+
+## Current status
+
+This repository now contains a minimal Python project that bootstraps the compiler
+workspace for:
+
+- frontend ingestion from quantized PyTorch into TOSA MLIR
+- TOSA to linalg and linalg bufferization checkpoints
+- CIRCT scheduling and structural lowering placeholders
+- Yosys synthesis handoff configuration
+- OpenROAD physical design handoff configuration
+
+The current implementation does **not** perform the full lowering flow yet. It
+creates a reproducible workspace layout, stage manifest, and starter config files so
+the real compiler integrations can be added incrementally.
+
+## Usage
+
+From `/home/runner/work/model-to-mask/model-to-mask`:
+
+```bash
+python -m model_to_mask.cli \
+  --model examples/quantized_model.pt \
+  --output-dir build/demo \
+  --top-name demo_accelerator
+```
+
+This creates:
+
+- `build/demo/manifest.json`
+- `build/demo/mlir/`
+- `build/demo/circt/`
+- `build/demo/backend/`
+- `build/demo/config/`
+
+To run the test suite:
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests
+```
